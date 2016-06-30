@@ -1,6 +1,6 @@
 --- This script can be used to measure timestamping precision and accuracy.
 --  Connect cables of different length between two ports (or a fiber loopback cable on a single port) to use this.
-local mg		= require "dpdk"
+local dpdk		= require "dpdk"
 local ts		= require "timestamping"
 local device	= require "device"
 local hist		= require "histogram"
@@ -29,7 +29,7 @@ function master(txPort, rxPort)
 	local rxDev = device.config({port = rxPort, rxQueues = 1 })
 	device.waitForLinks()
 	for i = 1, txCores do
-		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1, i==1)
+		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
 	end
 	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0))
 end
@@ -41,7 +41,6 @@ local mem = memory.createMemPool(function(buf)
 			ethSrc = txQueue,
 			ethDst = "10:11:12:13:14:15",
 			ip4Src = SRC_IP,
-			ip4Dst = DST_IP,
 			udpSrc = 1234,
 			udpDst = 5678,	
 		}
@@ -56,7 +55,7 @@ local mem = memory.createMemPool(function(buf)
 		end
 		-- UDP checksums are optional, so just IP checksums are sufficient here
 		bufs:offloadIPChecksums()
-		queue:send(bufs)
+		txQueue:send(bufs)
 		if showStats then ctr:update() end
 	end
 	if showStats then ctr:finalize() end
