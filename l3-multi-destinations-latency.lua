@@ -12,9 +12,9 @@ local DST_IP = {parseIPAddress("10.0.0.1"), parseIPAddress("10.255.255.255")}
 
 local PKT_SIZE = 60
 
-function master(txPort, rxPort)
+function master(txPort, rxPort, rate)
 	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort")
+		errorf("usage: txPort[:numcores] rxPort rate")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -28,6 +28,12 @@ function master(txPort, rxPort)
 	local txDev = device.config({port = txPort, txQueues = txCores + 1})
 	local rxDev = device.config({port = rxPort, rxQueues = 1 })
 	device.waitForLinks()
+  if rate then
+    rate = rate/txCores
+    for i = 1, txCores do
+      txDev:getTxQueue(i - 1):setRate(rate)
+    end
+  end
 	for i = 1, txCores do
 		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
 	end
