@@ -29,7 +29,7 @@ function master(txPort, rxPort)
 	local rxDev = device.config({port = rxPort, rxQueues = 1 })
 	device.waitForLinks()
 	for i = 1, txCores do
-    dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
+		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
 	end
   dpdk.launchLua("rxCounter", rxDev)
 	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0))
