@@ -8,7 +8,7 @@ local memory	= require "memory"
 local stats		= require "stats"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
-local DST_IP = {parseIPAddress("10.0.0.1"), parseIPAddress("10.255.255.255")}
+local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
 local DST_ETH = "90:e2:ba:3f:c7:00"
 
 local PKT_SIZE = 60
