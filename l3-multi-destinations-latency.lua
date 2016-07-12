@@ -42,9 +42,9 @@ local function doArp()
 	log:info("Destination mac: %s", DST_MAC)
 end
 
-function master(txPort, rxPort, rate, duration)
+function master(txPort, rxPort, rate, duration, size)
 	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort [rate] [duration]")
+		errorf("usage: txPort[:numcores] rxPort [rate] [duration] [size]")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -64,18 +64,18 @@ function master(txPort, rxPort, rate, duration)
 			txDev:getTxQueue(i - 1):setRate(rate)
 		end
 	end
-	if not duration then
-		duration = 600
-	end
+	if not duration then duration = 600 end
+	if size then PKT_SIZE = size end
 	for i = 1, txCores do
-		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, duration)
+		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, duration, PKT_SIZE)
 	end
 	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE, duration)
 end
 
-function loadSlave(txDev, txQueue, rxDev, showStats, duration)
+function loadSlave(txDev, txQueue, rxDev, showStats, duration, size)
 	doArp()
 	SRC_MAC = txQueue
+	PKT_SIZE = size
 	local mem = memory.createMemPool(function(buf)
 		fillUdpPacket(buf, PKT_SIZE)
 	end)
