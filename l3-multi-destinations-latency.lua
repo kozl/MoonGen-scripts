@@ -7,16 +7,31 @@ local hist		= require "histogram"
 local memory	= require "memory"
 local stats		= require "stats"
 local log		= require "log"
+local timer 	= require "timer"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
 local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
-local DST_ETH = "90:e2:ba:3f:c7:00"
-
+local SRC_MAC = "90:e2:ba:37:dc:44"
+local DST_MAC = "90:e2:ba:3f:c7:00"
+local SRC_PORT = 1234
+local DST_PORT = 5678
 local PKT_SIZE = 60
 
-function master(txPort, rxPort, rate)
+local function fillUdpPacket(buf, len)
+	buf:getUdpPacket():fill{
+		ethSrc = SRC_MAC,
+		ethDst = DST_MAC,
+		ip4Src = SRC_IP,
+		ip4Dst = DST_IP[1],
+		udpSrc = SRC_PORT,
+		udpDst = DST_PORT,
+		pktLength = len
+	}
+end
+
+function master(txPort, rxPort, rate, duration)
 	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort rate")
+		errorf("usage: txPort[:numcores] rxPort [rate] [duration]")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -30,71 +45,64 @@ function master(txPort, rxPort, rate)
 	local txDev = device.config({port = txPort, txQueues = txCores + 1})
 	local rxDev = device.config({port = rxPort, rxQueues = 1 })
 	device.waitForLinks()
-  if rate then
-    rate = rate/txCores
-    for i = 1, txCores do
-      txDev:getTxQueue(i - 1):setRate(rate)
-    end
-  end
-	for i = 1, txCores do
-		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
+	if rate then
+		rate = rate/txCores
+		for i = 1, txCores do
+			txDev:getTxQueue(i - 1):setRate(rate)
+		end
 	end
-  dpdk.launchLua("rxCounter", rxDev)
-	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE)
+	if not duration then
+		duration = 600
+	end
+	for i = 1, txCores do
+		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, duration)
+	end
+	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE, duration)
 end
 
-function loadSlave(txDev, txQueue, showStats)
-local mem = memory.createMemPool(function(buf)
-		buf:getUdpPacket():fill{
-			pktLength = PKT_SIZE,
-			ethSrc = txQueue,
-			ethDst = DST_ETH,
-			ip4Src = SRC_IP,
-			udpSrc = 1234,
-			udpDst = 5678,	
-		}
+function loadSlave(txDev, txQueue, rxDev, showStats, duration)
+	local mem = memory.createMemPool(function(buf)
+		fillUdpPacket(buf, PKT_SIZE)
 	end)
 	bufs = mem:bufArray(128)
-	local ctr = stats:newDevTxCounter(txDev, "plain")
-	while dpdk.running() do
+	local ctrTx = stats:newDevTxCounter(txDev, "plain")
+	local ctrRx = stats:newDevRxCounter(rxDev, "plain")
+	local timer = timer:new(duration)
+	while dpdk.running() and timer:running() do
 		bufs:alloc(PKT_SIZE)
 		for _, buf in ipairs(bufs) do
 			local pkt = buf:getUdpPacket()
 			pkt.ip4.dst:set(math.random(DST_IP[1], DST_IP[2]))
 		end
 		-- UDP checksums are optional, so just IP checksums are sufficient here
-		bufs:offloadIPChecksums()
+		bufs:offloadUdpChecksums()
 		txQueue:send(bufs)
-		if showStats then ctr:update() end
+		if showStats then 
+			ctrTx:update()
+			ctrRx:update()
+		end
 	end
-	if showStats then ctr:finalize() end
+	if showStats then 
+		ctrTx:finalize()
+		ctrRx:finalize()
+	end
 end
 
-function rxCounter(rxDev)
-  local ctr = stats:newDevRxCounter(rxDev, "plain")
-  while dpdk.running() do
-    ctr:update()
-  end
-  ctr:finalize()
-end
-
-function runTest(txQueue, rxQueue, size)
-	local timestamper = ts:newTimestamper(txQueue, rxQueue)
+function runTest(txQueue, rxQueue, size, duration)
+	local timestamper = ts:newUdpTimestamper(txQueue, rxQueue)
 	local hist = hist:new()
 	if size < 84 then
 		log:warn("Packet size %d is smaller than minimum timestamp size 84. Timestamped packets will be larger than load packets.", size)
 		size = 84
 	end
-	dpdk.sleepMillis(1000)
-	while dpdk.running() do
+	dpdk.sleepMillis(500)
+	local timer = timer:new(duration)
+	while dpdk.running() and timer:running() do
 		hist:update(timestamper:measureLatency(size, function(buf)
 			fillUdpPacket(buf, size)
-			local pkt = buf:getUdpPacket()
-			pkt.ip4.src:set(SRC_IP)
-			pkt.ip4.dst:set(math.random(DST_IP[1], DST_IP[2]))
-			pkt.eth.dst:set(DST_ETH)
 		end))
 	end
-	hist:save("histogram.csv")
+	dpdk.sleepMillis(1000)
 	hist:print()
+	hist:save("histogram.csv")
 end
