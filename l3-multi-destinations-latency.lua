@@ -8,7 +8,7 @@ local memory	= require "memory"
 local stats		= require "stats"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
-local DST_IP = {parseIPAddress("10.0.0.1"), parseIPAddress("10.255.255.254")}
+local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
 
 local PKT_SIZE = 60
 
@@ -77,7 +77,8 @@ function rxCounter(rxDev)
 end
 
 function runTest(txQueue, rxQueue)
-	local timestamper = ts:newTimestamper(txQueue, rxQueue)
+	-- local timestamper = ts:newUdpTimestamper(txQueue, rxQueue, parseIPAddress("10.0.0.2"), nil)
+	local timestamper = ts:newUdpTimestamper(txQueue, rxQueue)
 	local hist = hist:new()
 	while dpdk.running() do
 		hist:update(timestamper:measureLatency())
