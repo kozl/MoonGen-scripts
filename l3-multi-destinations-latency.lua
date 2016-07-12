@@ -10,6 +10,7 @@ local log		= require "log"
 local timer 	= require "timer"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
+local GW_IP = parseIPAddress("192.168.1.1")
 local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
 local SRC_MAC = "90:e2:ba:37:dc:44"
 local DST_MAC = "90:e2:ba:3f:c7:00"
@@ -27,6 +28,18 @@ local function fillUdpPacket(buf, len)
 		udpDst = DST_PORT,
 		pktLength = len
 	}
+end
+
+local function doArp()
+	if not DST_MAC then
+		log:info("Performing ARP lookup on %s", GW_IP)
+		DST_MAC = arp.blockingLookup(GW_IP, 5)
+		if not DST_MAC then
+			log:info("ARP lookup failed, using default destination mac address")
+			return
+		end
+	end
+	log:info("Destination mac: %s", DST_MAC)
 end
 
 function master(txPort, rxPort, rate, duration)
@@ -61,6 +74,8 @@ function master(txPort, rxPort, rate, duration)
 end
 
 function loadSlave(txDev, txQueue, rxDev, showStats, duration)
+	doArp()
+	SRC_MAC = txQueue
 	local mem = memory.createMemPool(function(buf)
 		fillUdpPacket(buf, PKT_SIZE)
 	end)
