@@ -6,6 +6,7 @@ local device	= require "device"
 local hist		= require "histogram"
 local memory	= require "memory"
 local stats		= require "stats"
+local log		= require "log"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
 local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
