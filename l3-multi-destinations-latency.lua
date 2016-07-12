@@ -11,7 +11,7 @@ local timer 	= require "timer"
 
 local SRC_IP = parseIPAddress("192.168.1.2")
 local GW_IP = parseIPAddress("192.168.1.1")
-local DST_IP = {parseIPAddress("10.0.0.2"), parseIPAddress("10.0.0.254")}
+local DST_IP = {parseIPAddress("240.0.0.2"), parseIPAddress("240.0.0.254")}
 local SRC_MAC = "90:e2:ba:37:dc:44"
 local DST_MAC = "90:e2:ba:3f:c7:00"
 local SRC_PORT = 1234
@@ -42,9 +42,9 @@ local function doArp()
 	log:info("Destination mac: %s", DST_MAC)
 end
 
-function master(txPort, rxPort, rate, duration, size)
+function master(txPort, rxPort, rate, size, duration)
 	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort [rate] [duration] [size]")
+		errorf("usage: txPort[:numcores] rxPort [rate] [size] [duration]")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -64,7 +64,7 @@ function master(txPort, rxPort, rate, duration, size)
 			txDev:getTxQueue(i - 1):setRate(rate)
 		end
 	end
-	if not duration then duration = 600 end
+	if not duration then duration = 3600 end
 	if size then PKT_SIZE = size end
 	for i = 1, txCores do
 		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, duration, PKT_SIZE)
