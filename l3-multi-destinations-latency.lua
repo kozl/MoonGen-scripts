@@ -39,7 +39,7 @@ function master(txPort, rxPort, rate)
 		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1)
 	end
   dpdk.launchLua("rxCounter", rxDev)
-	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0))
+	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE)
 end
 
 function loadSlave(txDev, txQueue, showStats)
@@ -77,7 +77,7 @@ function rxCounter(rxDev)
   ctr:finalize()
 end
 
-function runTest(txQueue, rxQueue)
+function runTest(txQueue, rxQueue, size)
 	local timestamper = ts:newTimestamper(txQueue, rxQueue)
 	local hist = hist:new()
 	if size < 84 then
