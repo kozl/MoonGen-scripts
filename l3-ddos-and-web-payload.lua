@@ -17,7 +17,8 @@ local DST_MAC = "90:e2:ba:3f:c7:00"
 local SRC_PORT = 1234
 local DDOS_DST_PORT = 53
 local PAYLOAD_DST_PORT = 80
-local PKT_SIZE = 60
+local DDOS_PKT_SIZE = 60
+local PAYLOAD_PKT_SIZE = 60
 
 local function fillUdpPacket(buf, dst_port, len)
 	buf:getUdpPacket():fill{
@@ -43,9 +44,9 @@ local function doArp()
 	log:info("Destination mac: %s", DST_MAC)
 end
 
-function master(txPort, rxPort, rate, size, duration)
+function master(txPort, rxPort, rate, duration)
 	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort [rate] [size] [duration]")
+		errorf("usage: txPort[:numcores] rxPort [rate] [duration]")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -68,27 +69,25 @@ function master(txPort, rxPort, rate, size, duration)
 		txDev:getTxQueue(txCores - 1):setRate(payload_rate)
 	end
 	if not duration then duration = 3600 end
-	if size then PKT_SIZE = size end
 	for i = 1, txCores - 1 do
-		dpdk.launchLua("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, PKT_SIZE, duration)
+		dpdk.launchLua("loadSlaveDdos", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, duration)
 	end
-	dpdk.launchLua("loadSlavePayload", txDev:getTxQueue(txCores - 1), PKT_SIZE, duration)
-	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE, duration)
+	dpdk.launchLua("loadSlavePayload", txDev:getTxQueue(txCores - 1), duration)
+	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), duration)
 end
 
-function loadSlave(txDev, txQueue, rxDev, showStats, size, duration)
+function loadSlaveDdos(txDev, txQueue, rxDev, showStats, duration)
 	doArp()
 	SRC_MAC = txQueue
-	PKT_SIZE = size
 	local mem = memory.createMemPool(function(buf)
-		fillUdpPacket(buf, DDOS_DST_PORT, PKT_SIZE)
+		fillUdpPacket(buf, DDOS_DST_PORT, DDOS_PKT_SIZE)
 	end)
 	bufs = mem:bufArray(128)
 	local ctrTx = stats:newDevTxCounter(txDev, "plain")
 	local ctrRx = stats:newDevRxCounter(rxDev, "plain")
 	local timer = timer:new(duration)
 	while dpdk.running() and timer:running() do
-		bufs:alloc(PKT_SIZE)
+		bufs:alloc(DDOS_PKT_SIZE)
 		for _, buf in ipairs(bufs) do
 			local pkt = buf:getUdpPacket()
 			pkt.ip4.src:set(math.random(SRC_IP[1], SRC_IP[2]))
@@ -107,17 +106,16 @@ function loadSlave(txDev, txQueue, rxDev, showStats, size, duration)
 	end
 end
 
-function loadSlavePayload(txQueue, size, duration)
+function loadSlavePayload(txQueue, duration)
 	dpdk.sleepMillis(500)
 	SRC_MAC = txQueue
-	PKT_SIZE = size
 	local mem = memory.createMemPool(function(buf)
-		fillUdpPacket(buf, PAYLOAD_DST_PORT, PKT_SIZE)
+		fillUdpPacket(buf, PAYLOAD_DST_PORT, PAYLOAD_PKT_SIZE)
 	end)
 	bufs = mem:bufArray(128)
 	local timer = timer:new(duration)
 	while dpdk.running() and timer:running() do
-		bufs:alloc(PKT_SIZE)
+		bufs:alloc(PAYLOAD_PKT_SIZE)
 		for _, buf in ipairs(bufs) do
 			local pkt = buf:getUdpPacket()
 			pkt.ip4.src:set(math.random(SRC_IP[1], SRC_IP[2]))
@@ -128,9 +126,10 @@ function loadSlavePayload(txQueue, size, duration)
 	end
 end
 
-function runTest(txQueue, rxQueue, size, duration)
+function runTest(txQueue, rxQueue, duration)
 	local timestamper = ts:newUdpTimestamper(txQueue, rxQueue)
 	local hist = hist:new()
+	size = PAYLOAD_PKT_SIZE
 	if size < 84 then
 		log:warn("Packet size %d is smaller than minimum timestamp size 84. Timestamped packets will be larger than load packets.", size)
 		size = 84
