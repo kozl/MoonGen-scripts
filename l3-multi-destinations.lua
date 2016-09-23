@@ -1,6 +1,7 @@
 --- This script can be used to measure timestamping precision and accuracy.
 --  Connect cables of different length between two ports (or a fiber loopback cable on a single port) to use this.
 local moongen		= require "moongen"
+local dpdk		= require "dpdk"
 local ts		= require "timestamping"
 local device		= require "device"
 local hist		= require "histogram"
@@ -42,9 +43,9 @@ local function doArp()
 	log:info("Destination mac: %s", DST_MAC)
 end
 
-function master(txPort, rxPort, rate, size, duration)
-	if not txPort or not rxPort then
-		errorf("usage: txPort[:numcores] rxPort [rate] [size] [duration]")
+function master(txPort, rate, size, duration)
+	if not txPort then
+		errorf("usage: txPort[:numcores] [rate] [size] [duration]")
 	end
 	if type(txPort) == "string" then
 		txPort, txCores = tonumberall(txPort:match("(%d+):(%d+)"))
@@ -56,7 +57,6 @@ function master(txPort, rxPort, rate, size, duration)
 		return
 	end
 	local txDev = device.config({port = txPort, txQueues = txCores + 1})
-	local rxDev = device.config({port = rxPort, rxQueues = 1 })
 	device.waitForLinks()
 	if rate then
 		rate = rate/txCores
@@ -67,12 +67,11 @@ function master(txPort, rxPort, rate, size, duration)
 	if not duration then duration = 3600 end
 	if size then PKT_SIZE = size end
 	for i = 1, txCores do
-		moongen.startTask("loadSlave", txDev, txDev:getTxQueue(i - 1), rxDev, i==1, PKT_SIZE, duration)
+		moongen.startTask("loadSlave", txDev, txDev:getTxQueue(i - 1), i==1, PKT_SIZE, duration)
 	end
-	runTest(txDev:getTxQueue(txCores), rxDev:getRxQueue(0), PKT_SIZE, duration)
 end
 
-function loadSlave(txDev, txQueue, rxDev, showStats, size, duration)
+function loadSlave(txDev, txQueue, showStats, size, duration)
 	doArp()
 	SRC_MAC = txQueue
 	PKT_SIZE = size
@@ -81,9 +80,8 @@ function loadSlave(txDev, txQueue, rxDev, showStats, size, duration)
 	end)
 	bufs = mem:bufArray(128)
 	local ctrTx = stats:newDevTxCounter(txDev, "plain")
-	local ctrRx = stats:newDevRxCounter(rxDev, "plain")
 	local timer = timer:new(duration)
-	while moongen.running() and timer:running() do
+	while moongen.running() do
 		bufs:alloc(PKT_SIZE)
 		for _, buf in ipairs(bufs) do
 			local pkt = buf:getUdpPacket()
@@ -94,30 +92,9 @@ function loadSlave(txDev, txQueue, rxDev, showStats, size, duration)
 		txQueue:send(bufs)
 		if showStats then 
 			ctrTx:update()
-			ctrRx:update()
 		end
 	end
 	if showStats then 
 		ctrTx:finalize()
-		ctrRx:finalize()
 	end
-end
-
-function runTest(txQueue, rxQueue, size, duration)
-	local timestamper = ts:newUdpTimestamper(txQueue, rxQueue)
-	local hist = hist:new()
-	if size < 84 then
-		log:warn("Packet size %d is smaller than minimum timestamp size 84. Timestamped packets will be larger than load packets.", size)
-		size = 84
-	end
-	dpdk.sleepMillis(500)
-	local timer = timer:new(duration)
-	while dpdk.running() and timer:running() do
-		hist:update(timestamper:measureLatency(size, function(buf)
-			fillUdpPacket(buf, size)
-		end))
-	end
-	dpdk.sleepMillis(1000)
-	hist:print()
-	hist:save("histogram.csv")
 end
